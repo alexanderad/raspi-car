@@ -1,4 +1,6 @@
 #!/usr/bin/python
+__version__ = "0.0.1"
+
 import time
 import subprocess
 
@@ -14,6 +16,8 @@ from cacher import cache
 VIDEO_DESTINATION = "/home/pi/video"
 ROOT_DEVICE = "/dev/root"
 MAX_FPS = 6
+MENU_TIMEOUT = 10
+VIDEO_LENGTH = 5 # in minutes
 
 
 def get_system_output(command):
@@ -35,13 +39,35 @@ def get_temperature():
     return temp
 
 @cache(timeout=60)
-def get_free_disk_space():
-    df = get_system_output("df -h %s | grep -v 'Filesystem' | awk '{ print $4 }'" % ROOT_DEVICE)
+def get_free_disk_space(short=True):
+    if short:
+        df = get_system_output("df -h %s | grep -v 'Filesystem' | awk '{ print $4 }'" % ROOT_DEVICE)
+    else:
+        df = get_system_output("""df -h %s | awk '{ print $3 " " $4 " " $5}'""" % ROOT_DEVICE)
+        
     df = df.strip()
     return df
 
 def get_ip_address():
     return get_system_output("hostname -I")
+
+def show_message(message):
+    lcd.home()
+    lcd.clear()
+    lcd.message(message)
+    
+def set_video_length(mins):
+    VIDEO_LENGTH = mins * 60
+
+def show_info_network_screen():
+    show_message('IP: %s' % get_ip_address())
+    
+def show_info_df_screen():
+    show_message(get_free_disk_space(short=False))
+    
+def show_info_version_screen():
+    show_message("raspi-car\n"
+                 "Version: %s" % __version__)
 
 def status_screen(message=''):
     """ Status screen """
@@ -63,8 +89,9 @@ if __name__ == '__main__':
 
     # some variables to be set once
     lastTime = 0
-    state = "menu"
+    state = "idle"
     message = "Ready"
+    menu_timer = Timer(0, lambda x: x, None)
 
     # set random backlight color
     lcd.backlight(choice(colors))
@@ -89,21 +116,21 @@ if __name__ == '__main__':
                 "name": "Recording",
                 "selected": 0,
                 "items": [
-                    {"name": "Record 1080p", "description": "15 Mbits"},
-                    {"name": "Record 720p", "description": "7 Mbits"},
-                    {"name": "Record 480p", "description": "4 Mbits"},
+                    {"name": "Record 1080p"},
+                    {"name": "Record 720p"},
+                    {"name": "Record 480p"},
                 ]
             },
             {
                 "name": "Music",
             },
             {
-                "name": "Information",
+                "name": "Info",
                 "selected": 0,
                 "items": [
-                    {"name": "Network"},
-                    {"name": "Disk space"},
-                    {"name": "Version"},
+                    {"name": "Network", "call": show_info_network_screen, "args": []},
+                    {"name": "Disk space", "call": show_info_df_screen, "args": []},
+                    {"name": "Version", "call": show_info_version_screen, "args": []},
                 ]
             },
             {
@@ -114,25 +141,25 @@ if __name__ == '__main__':
                         "name": "Backlight",
                         "selected": 0,
                         "items": [
-                            {"name": "White", },
-                            {"name": "Green", },
-                            {"name": "Teal", },
-                            {"name": "Yellow", },
-                            {"name": "Red", },
-                            {"name": "Violet", },
-                            {"name": "Blue", },
-                            {"name": "Off", },
+                            {"name": "White", "call": lcd.backlight, "args": [lcd.WHITE]},
+                            {"name": "Green", "call": lcd.backlight, "args": [lcd.GREEN]},
+                            {"name": "Teal", "call": lcd.backlight, "args": [lcd.TEAL]},
+                            {"name": "Yellow", "call": lcd.backlight, "args": [lcd.YELLOW]},
+                            {"name": "Red", "call": lcd.backlight, "args": [lcd.RED]},
+                            {"name": "Violet", "call": lcd.backlight, "args": [lcd.VIOLET]},
+                            {"name": "Blue", "call": lcd.backlight, "args": [lcd.BLUE]},
+                            {"name": "Off", "call": lcd.backlight, "args": [lcd.OFF]},
                         ]
                     },
                     {
-                        "name": "Video length",
+                        "name": "Video",
                         "selected": 0,
                         "items": [
-                            {"name": "5 mins"},
-                            {"name": "10 mins"},
-                            {"name": "20 mins"},
-                            {"name": "30 mins"},
-                            {"name": "60 mins"},
+                            {"name": "5 mins", "call": set_video_length, "args": [5]},
+                            {"name": "10 mins", "call": set_video_length, "args": [10]},
+                            {"name": "20 mins", "call": set_video_length, "args": [20]},
+                            {"name": "30 mins", "call": set_video_length, "args": [30]},
+                            {"name": "60 mins", "call": set_video_length, "args": [60]},
                         ]
                     }
                 ]
@@ -140,11 +167,33 @@ if __name__ == '__main__':
         ]
     }
     
+    # CRAP menu with global states
+    def hide_menu():
+        # boooooo
+        global state
+        global menu_timer
+        state = "idle"
+    
+    def show_menu():
+        # boooooo
+        global state
+        global menu_timer
+        state = "menu"
+        redraw_menu(None)
+    
     def redraw_menu(btn):
+        # boooooo
+        global state
+        global menu_timer
         
-        # are we allowed to operate?
-        if "menu" != state:
-            return
+        if state != "menu": show_menu()
+        
+        # timers
+        menu_timer.cancel()
+        menu_timer = Timer(MENU_TIMEOUT, hide_menu)
+        menu_timer.start()
+        
+        stop_select_propagation = False
         
         # first, allow to go up if it's possible and requested
         if btn == "up":
@@ -152,15 +201,18 @@ if __name__ == '__main__':
                 menu["level"].pop()
                 
         # second, go down to the selected item
-        item = menu
+        item, prev_item = menu, menu
         for level in menu["level"]:
+            prev_item = item
             item = item["items"][level]
             
         # third, allow to go even lower, if it's possible and requested
         if btn in ["down", "select"]:
             if "items" in item["items"][item["selected"]]:
                 menu["level"].append(item["selected"])
+                prev_item = item
                 item = item["items"][item["selected"]]
+                stop_select_propagation = True
             
         # allow to go through items of this level
         if btn in ["left", "right"]:
@@ -171,18 +223,32 @@ if __name__ == '__main__':
             item["selected"] = (item["selected"] + delta) % len(item["items"])
         
         # prepare item meta to be printed to screen
+        prev_name = ''
         name = item["items"][item["selected"]]["name"]
-        description = item["items"][item["selected"]].get("description", "")
+        if item != prev_item:
+            prev_name = '%s%s' % (lcd.CHAR_ARROW_UP, prev_item["items"][prev_item["selected"]]["name"])
         position = '%s%d/%d%s' % (lcd.CHAR_ARROW_LEFT,
                                   item["selected"] + 1, len(item["items"]),
                                   lcd.CHAR_ARROW_RIGHT)
         
         lcd.home()
         lcd.clear()
-        line1 = '%-15s%1s' % (name, lcd.CHAR_ARROW_UP if menu["level"] else "")
-        line2 = '%-11s%5s' % (description[:11], position)
+        line1 = '%-16s' % (name, )
+        line2 = '%-11s%5s' % (prev_name, position)
         lcd.message('%s\n%s' % (line1, line2))
         
+        # finally process SELECT
+        if btn == "select" and not stop_select_propagation:
+            selected_item = item["items"][item["selected"]]
+            if "call" in selected_item:
+                func, args = selected_item["call"], selected_item["args"]
+                func(*args)
+            else:
+                print "don't know what to do", selected_item
+    
+    # finall calls before going into main cycle
+    show_menu()   
+    
     # main cylce
     while True:
         # poll all buttons once, avoids repeated I2C traffic for different cases
@@ -203,8 +269,7 @@ if __name__ == '__main__':
         elif btn_right:
             redraw_menu("right")
         elif btn_select:
-            message = "select"
-            redraw_menu("123")
+            redraw_menu("select")
         
         if state == "idle":
             # update status message
