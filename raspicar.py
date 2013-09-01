@@ -1,6 +1,7 @@
 #!/usr/bin/python
 __version__ = "0.0.1"
 
+import atexit
 import time
 import subprocess
 
@@ -18,6 +19,17 @@ ROOT_DEVICE = "/dev/root"
 MAX_FPS = 6
 MENU_TIMEOUT = 10
 VIDEO_LENGTH = 5 # in minutes
+
+
+
+# quality chart for YouTube: https://support.google.com/youtube/answer/2853702?hl=uk
+"""
+ 	        240p	    360p	    480p	    720p        1080p
+Resolution	426 x 240	640 x 360   854x480	    1280x720    1920x1080	  	  	  	  
+Maximum     700 Kbps    1000 Kbps   2000 Kbps   4000 Kbps   6000 Kbps
+Recommended	400 Kbps	750 Kbps	1000 Kbps   2500 Kbps   4500 Kbps
+Minimum     300 Kbps    400 Kbps    500 Kbps    1500 Kbps   3000 Kbps
+"""
 
 
 def get_system_output(command):
@@ -69,6 +81,9 @@ def show_info_version_screen():
     show_message("raspi-car\n"
                  "Version: %s" % __version__)
 
+def start_recording(quality, bitrate):
+    print "going to start recording at", quality, "at bitrate", bitrate
+
 def status_screen(message=''):
     """ Status screen """
     current_time = get_current_time()
@@ -116,9 +131,17 @@ if __name__ == '__main__':
                 "name": "Recording",
                 "selected": 0,
                 "items": [
-                    {"name": "Record 1080p"},
-                    {"name": "Record 720p"},
-                    {"name": "Record 480p"},
+                    {"name": "1080p @ 6 Mbps", "description": "High Q", "call": start_recording, "args": ['1080p', 6]},
+                    {"name": "1080p @ 4.5 Mbps", "description": "Normal Q", "call": start_recording, "args": ['1080p', 4.5]},
+                    {"name": "1080p @ 3 Mbps", "description": "Low Q", "call": start_recording, "args": ['1080p', 3]},
+                    
+                    {"name": "720p @ 4 Mbps", "description": "High Q", "call": start_recording, "args": ['720p', 4]},
+                    {"name": "720p @ 2.5 Mbps", "description": "Normal Q", "call": start_recording, "args": ['720p', 2.5]},
+                    {"name": "720p @ 1.5 Mbps", "description": "Low Q", "call": start_recording, "args": ['720p', 1.5]},
+                    
+                    {"name": "480p @ 2 Mbps", "description": "High Q", "call": start_recording, "args": ['480p', 2]},
+                    {"name": "480p @ 1 Mbps", "description": "Normal Q", "call": start_recording, "args": ['480p', 1]},
+                    {"name": "480p @ 0.5 Mbps", "description": "Low Q", "call": start_recording, "args": ['480p', 0.5]},
                 ]
             },
             {
@@ -225,8 +248,10 @@ if __name__ == '__main__':
         # prepare item meta to be printed to screen
         prev_name = ''
         name = item["items"][item["selected"]]["name"]
-        if item != prev_item:
-            prev_name = '%s%s' % (lcd.CHAR_ARROW_UP, prev_item["items"][prev_item["selected"]]["name"])
+        description = item["items"][item["selected"]].get("description", "")
+        if not description:
+            if item != prev_item:
+                prev_name = '%s%s' % (lcd.CHAR_ARROW_UP, prev_item["items"][prev_item["selected"]]["name"])
         position = '%s%d/%d%s' % (lcd.CHAR_ARROW_LEFT,
                                   item["selected"] + 1, len(item["items"]),
                                   lcd.CHAR_ARROW_RIGHT)
@@ -234,7 +259,7 @@ if __name__ == '__main__':
         lcd.home()
         lcd.clear()
         line1 = '%-16s' % (name, )
-        line2 = '%-11s%5s' % (prev_name, position)
+        line2 = '%-11s%5s' % (description or prev_name, position)
         lcd.message('%s\n%s' % (line1, line2))
         
         # finally process SELECT
@@ -248,6 +273,15 @@ if __name__ == '__main__':
     
     # finall calls before going into main cycle
     show_menu()   
+    
+    # at exit
+    def atexit_handler():
+        global menu_timer
+        menu_timer.cancel()
+        lcd.clear()
+        lcd.stop()
+    
+    atexit.register(atexit_handler)
     
     # main cylce
     while True:
