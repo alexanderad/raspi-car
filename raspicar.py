@@ -1,4 +1,6 @@
 #!/usr/bin/python
+# -*- coding: utf-8 -*-
+
 __version__ = "0.0.1"
 
 import atexit
@@ -7,29 +9,18 @@ import subprocess
 
 from datetime import datetime
 from random import choice
-from threading import Timer
 
 from adafruit import Adafruit_CharLCDPlate
-from cacher import cache
+from utils.decorators import cache
+from utils.watchdog import Watchdog
 
 
 # a bit of settings
 VIDEO_DESTINATION = "/home/pi/video"
 ROOT_DEVICE = "/dev/root"
 MAX_FPS = 6
-MENU_TIMEOUT = 10
+MENU_TIMEOUT = 10 # in seconds
 VIDEO_LENGTH = 5 # in minutes
-
-
-
-# quality chart for YouTube: https://support.google.com/youtube/answer/2853702?hl=uk
-"""
- 	        240p	    360p	    480p	    720p        1080p
-Resolution	426 x 240	640 x 360   854x480	    1280x720    1920x1080	  	  	  	  
-Maximum     700 Kbps    1000 Kbps   2000 Kbps   4000 Kbps   6000 Kbps
-Recommended	400 Kbps	750 Kbps	1000 Kbps   2500 Kbps   4500 Kbps
-Minimum     300 Kbps    400 Kbps    500 Kbps    1500 Kbps   3000 Kbps
-"""
 
 
 def get_system_output(command):
@@ -92,7 +83,8 @@ def status_screen(message=''):
 
     line1 = '%-11s%5s' % (message[:10], current_time)
     line2 = '%-8s%8s' % (temp, disk_space)
-    return '%s\n%s' % (line1, line2)
+    return '%s\n%s' % (line1, line2)        
+    
 
 if __name__ == '__main__':
     # initialize LCD
@@ -106,8 +98,8 @@ if __name__ == '__main__':
     lastTime = 0
     state = "idle"
     message = "Ready"
-    menu_timer = Timer(0, lambda x: x, None)
-
+    menu_timer_id = 0
+    
     # set random backlight color
     lcd.backlight(choice(colors))
     lcd.clear()
@@ -131,6 +123,7 @@ if __name__ == '__main__':
                 "name": "Recording",
                 "selected": 0,
                 "items": [
+                    # according to quality chart of YouTube (https://support.google.com/youtube/answer/2853702?hl=en)
                     {"name": "1080p @ 6 Mbps", "description": "High Q", "call": start_recording, "args": ['1080p', 6]},
                     {"name": "1080p @ 4.5 Mbps", "description": "Normal Q", "call": start_recording, "args": ['1080p', 4.5]},
                     {"name": "1080p @ 3 Mbps", "description": "Low Q", "call": start_recording, "args": ['1080p', 3]},
@@ -194,27 +187,24 @@ if __name__ == '__main__':
     def hide_menu():
         # boooooo
         global state
-        global menu_timer
         state = "idle"
     
     def show_menu():
         # boooooo
         global state
-        global menu_timer
         state = "menu"
         redraw_menu(None)
     
     def redraw_menu(btn):
         # boooooo
         global state
-        global menu_timer
+        global menu_timer_id
         
         if state != "menu": show_menu()
         
         # timers
-        menu_timer.cancel()
-        menu_timer = Timer(MENU_TIMEOUT, hide_menu)
-        menu_timer.start()
+        Watchdog.clear_timeout(menu_timer_id)
+        menu_timer_id = Watchdog.set_timeout(MENU_TIMEOUT, hide_menu)
         
         stop_select_propagation = False
         
@@ -276,8 +266,7 @@ if __name__ == '__main__':
     
     # at exit
     def atexit_handler():
-        global menu_timer
-        menu_timer.cancel()
+        """ be resposible """
         lcd.clear()
         lcd.stop()
     
@@ -309,6 +298,9 @@ if __name__ == '__main__':
             # update status message
             lcd.home()
             lcd.message(status_screen(message))
+            
+        # process all timeouts that we have
+        Watchdog.process_timeouts()
     
         # throttle frame rate, keeps screen legible
         while True:
