@@ -37,6 +37,4 @@ class Watchdog(object):
         for timer_id, timer_data in cls._timers.items():
             if (time_now - timer_data["time_set"]) > timer_data["timeout"]:
                 timer_data["func"](*timer_data["args"], **timer_data["kwargs"])
-                print "timeout was", timer_data["timeout"], "executed after", (time_now - timer_data["time_set"])
                 cls._timers.pop(timer_id)
-

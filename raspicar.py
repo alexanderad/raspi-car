@@ -13,6 +13,7 @@ from random import choice
 from adafruit import Adafruit_CharLCDPlate
 from utils.decorators import cache
 from utils.watchdog import Watchdog
+from utils.recorder import VideoRecorder
 
 
 # a bit of settings
@@ -72,9 +73,6 @@ def show_info_version_screen():
     show_message('raspi-car\n'
                  'Version: %s' % __version__)
 
-def start_recording(quality, bitrate):
-    print 'going to start recording at', quality, 'at bitrate', bitrate
-
 def status_screen(message=''):
     ''' Status screen '''
     current_time = get_current_time()
@@ -91,6 +89,7 @@ if __name__ == '__main__':
     lcd.begin(16, 2)
 
     # some variables to be set once
+    recorder = VideoRecorder(VIDEO_DESTINATION)
     lastTime = 0
     state = 'idle'
     message = 'Ready'
@@ -108,6 +107,12 @@ if __name__ == '__main__':
     lcd.CHAR_ARROW_DOWN = '\x01'
     lcd.CHAR_ARROW_LEFT = '\x02'
     lcd.CHAR_ARROW_RIGHT = '\x03'
+    
+    def start_recording(quality, bitrate):
+        global recorder
+        print "quality", quality
+        print "bitrate", bitrate
+        recorder.start(quality, bitrate, VIDEO_LENGTH * 60)
     
     # menu
     menu = {
@@ -263,7 +268,7 @@ if __name__ == '__main__':
         lcd.clear()
         lcd.stop()
     
-    atexit.register(atexit_handler)
+    atexit.register(atexit_handler)    
     
     # main cylce
     while True:
