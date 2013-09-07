@@ -36,6 +36,14 @@ def get_current_time():
     separator = ':' if now.second % 2 else ' '
     return '%s%s%s' % (now.strftime('%H'), separator, now.strftime('%M'))
 
+def get_time_since(since):
+    now = time.time()
+    delta = int(now - since)
+    mins = int(delta / 60.0)
+    secs = int(delta - mins * 60)
+    separator = ':' if secs % 2 else ' '
+    return '%s%s%s' % (str(mins).zfill(2), separator, str(secs).zfill(2))
+    
 @cache(timeout=15)
 def get_temperature():
     temp = get_system_output('/opt/vc/bin/vcgencmd measure_temp')
@@ -47,13 +55,16 @@ def get_free_disk_space(short=True):
     if short:
         df = get_system_output("df -h %s | grep -v 'Filesystem' | awk '{ print $4 }'" % ROOT_DEVICE)
     else:
-        df = get_system_output("""df -h %s | awk '{ print $3 ' ' $4 ' ' $5}""" % ROOT_DEVICE)
+        df = get_system_output("""df -h %s | awk '{ print $3 " " $4 " " $5}'""" % ROOT_DEVICE)
         
     df = df.strip()
     return df
 
 def get_ip_address():
     return get_system_output('hostname -I')
+
+def get_du(filename):
+    return get_system_output("du -h %s | awk '{ print $1 }'" % filename)
 
 def show_message(message):
     lcd.home()
@@ -73,15 +84,26 @@ def show_info_version_screen():
     show_message('raspi-car\n'
                  'Version: %s' % __version__)
 
-def status_screen(message=''):
-    ''' Status screen '''
+def status_screen():
     current_time = get_current_time()
     temp = get_temperature()
     disk_space = get_free_disk_space()
 
-    line1 = '%-11s%5s' % (message[:10], current_time)
+    line1 = '%-11s%5s' % ('Idle', current_time)
     line2 = '%-8s%8s' % (temp, disk_space)
-    return '%s\n%s' % (line1, line2)        
+    return '%s\n%s' % (line1, line2)
+    
+def recording_screen(recorder):
+     time_since = get_time_since(recorder.started_at)
+     temp = get_temperature()
+     du = get_du(recorder.filename)
+
+     odd_cycle = int(time_since[-1]) % 2
+
+     line1 = '%-2s%14s' % ('R' if odd_cycle else ' ', recorder)
+     line2 = '%-5s%11s' % (time_since, du)
+
+     return '%s\n%s' % (line1, line2)
     
 if __name__ == '__main__':
     # initialize LCD
@@ -92,7 +114,6 @@ if __name__ == '__main__':
     recorder = VideoRecorder(VIDEO_DESTINATION)
     lastTime = 0
     state = 'idle'
-    message = 'Ready'
     menu_timer_id = 0
     
     lcd.backlight(lcd.TEAL)
@@ -110,9 +131,16 @@ if __name__ == '__main__':
     
     def start_recording(quality, bitrate):
         global recorder
-        print "quality", quality
-        print "bitrate", bitrate
+        global state
+        global menu_timer_id
         recorder.start(quality, bitrate, VIDEO_LENGTH * 60)
+        
+        # menu
+        hide_menu()
+        # timers
+        Watchdog.clear_timeout(menu_timer_id)
+        
+        state = 'recording'
     
     # menu
     menu = {
@@ -292,10 +320,16 @@ if __name__ == '__main__':
         elif btn_select:
             redraw_menu('select')
         
+        if state == 'recording':
+            lcd.home()
+            lcd.message(recording_screen(recorder))
+            if not recorder.is_active():
+                state = 'idle'
+        
         if state == 'idle':
             # update status message
             lcd.home()
-            lcd.message(status_screen(message))
+            lcd.message(status_screen())
             
         # process all timeouts that we have
         Watchdog.process_timeouts()

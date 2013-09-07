@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
+import time
 import subprocess
 from datetime import datetime
 
 from utils.watchdog import Watchdog
-from devel.mocks import subprocess
 
 
 class VideoRecorder(object):
@@ -12,6 +12,11 @@ class VideoRecorder(object):
     _active = False
     _pid = None
     _timer_id = None
+    
+    started_at = None
+    filename = None
+    quality = None
+    bitrate = None
     
     _quality_map = {
         '1080p': {'w': 1920, 'h': 1080},
@@ -49,11 +54,20 @@ class VideoRecorder(object):
         self._pid = self._run_and_get_pid(raspivid_command)
         print 'pid is', self._pid
         self._active = True
+        self.started_at = time.time()
+        
+        # memorize recording options
+        self.filename = filename
+        self.quality = quality
+        self.bitrate = bitrate
     
         # don't interrupt raspivid, it will finish itself
         # we're just interested when recording is finished
         self._timer_id = Watchdog.set_timeout(duration + 1, self.stop)
         print 'recorder started'
-
+        
     def is_active(self):
         return self._active
+        
+    def __str__(self):
+        return '%s @ %s Mbps' % (self.quality, self.bitrate)
