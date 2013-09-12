@@ -33,5 +33,8 @@ Actually, it is not designed to be reusable and/or redistributable.
  * 16 x 2 mpd interface (play, pause, stop, next, previous)
  * automount usb stick (add to mpd collection, clean up mpd collection on removal)
 
-5. Fix bugs
+5. Also
+ * add RTC clock 
+
+6. Fix bugs
  * for some reason video recording longer then 30 mins does not stop (raspivid bug?)
